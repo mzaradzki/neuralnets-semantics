@@ -26,12 +26,25 @@ def load_data(N):
     numdims = size(data.trainData, 0);
     D = numdims - 1;
     M = math.floor(size(data.trainData, 1) / N);
+    
     train_input = reshape(data.trainData[0:D, 0:N * M], (D, N, M));
+    train_input = train_input - 1; # BECAUSE MATLAB INDEX STARTS AT 1
+    
     train_target = reshape(data.trainData[D, 0:N * M], (1, N, M));
+    train_target = train_target - 1; # BECAUSE MATLAB INDEX STARTS AT 1
+    
     valid_input = data.validData[0:D, :];
+    valid_input = valid_input - 1; # BECAUSE MATLAB INDEX STARTS AT 1
+
     valid_target = data.validData[D, :];
+    valid_target = valid_target - 1; # BECAUSE MATLAB INDEX STARTS AT 1
+
     test_input = data.testData[0:D, :];
+    test_input = test_input - 1; # BECAUSE MATLAB INDEX STARTS AT 1
+
     test_target = data.testData[D, :];
+    test_target = test_target - 1; # BECAUSE MATLAB INDEX STARTS AT 1
+
     vocab = data.vocab;
     if True:
         for i in range(vocab.shape[1]):
