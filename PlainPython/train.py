@@ -47,13 +47,13 @@ def train(epochs):
     output_bias = np.zeros((vocab_size, 1));
 
     word_embedding_weights_delta = np.zeros((vocab_size, numhid1));
-    word_embedding_weights_gradient = np.zeros((vocab_size, numhid1));
+    #word_embedding_weights_gradient = np.zeros((vocab_size, numhid1));
     embed_to_hid_weights_delta = np.zeros((numwords * numhid1, numhid2));
     hid_to_output_weights_delta = np.zeros((numhid2, vocab_size));
     hid_bias_delta = np.zeros((numhid2, 1));
     output_bias_delta = np.zeros((vocab_size, 1));
     expansion_matrix = np.eye(vocab_size);
-    count = 0;
+    counter = 0;
     tiny = math.exp(-30);
 
 
@@ -63,29 +63,31 @@ def train(epochs):
         expanded_valid_target = expansion_matrix[:, _target];
         return -sum(sum(expanded_valid_target * np.log(output_layer_state + tiny))) / datasetsize;
 
-
-    def fprop_gradient(_input, _target):
+    def fprop_gradient(_input, _target, _counter, _this_chunk_CE, _trainset_CE):
         # FORWARD PROPAGATE.
         # Compute the state of each layer in the network given the input batch
         # and all weights and biases
+        print word_embedding_weights.shape;
         [embedding_layer_state, hidden_layer_state, output_layer_state] = fprop(_input, word_embedding_weights, embed_to_hid_weights, hid_to_output_weights, hid_bias, output_bias);
-
+        print output_layer_state.shape;
         # COMPUTE DERIVATIVE.
         # Expand the target to a sparse 1-of-K vector.
-        expanded_target_batch = expansion_matrix[:, _target];
+        expanded_target_batch = expansion_matrix[:, _target][:,0,:]; # WARNING : strange indices
+        print expanded_target_batch.shape;
         # Compute derivative of cross-entropy loss function.
         error_deriv = output_layer_state - expanded_target_batch;
 
         # MEASURE LOSS FUNCTION.
         CE = -np.sum(np.sum(expanded_target_batch * np.log(output_layer_state + tiny))) / batchsize;
-        count = count + 1;
-        this_chunk_CE = this_chunk_CE + (CE - this_chunk_CE) / count;
-        trainset_CE = trainset_CE + (CE - trainset_CE) / m;
-        print "Batch %d Train CE %.3f" % (m, this_chunk_CE);
+        
+        _counter = _counter + 1;
+        _this_chunk_CE = _this_chunk_CE + (CE - _this_chunk_CE) / counter;
+        _trainset_CE = _trainset_CE + (CE - _trainset_CE) / m;
+        print "Batch %d Train CE %.3f" % (m, _this_chunk_CE);
         if (m % show_training_CE_after) == 0:
             print '1' + '\n';
-            count = 0;
-            this_chunk_CE = 0;
+            _counter = 0;
+            _this_chunk_CE = 0;
 
         if True:
             fflush(1);
@@ -93,23 +95,25 @@ def train(epochs):
 
         # BACK PROPAGATE.
         # OUTPUT LAYER.
-        hid_to_output_weights_gradient =  hidden_layer_state * error_deriv.T;
-        output_bias_gradient = np.sum(error_deriv, 2);
-        back_propagated_deriv_1 = (hid_to_output_weights * error_deriv) * hidden_layer_state * (1 - hidden_layer_state);
+        hid_to_output_weights_gradient =  np.dot(hidden_layer_state, error_deriv.T);
+        output_bias_gradient = np.sum(error_deriv, 1);
+        back_propagated_deriv_1 = np.dot(hid_to_output_weights, error_deriv) * hidden_layer_state * (1 - hidden_layer_state);
 
         # HIDDEN LAYER.
-        embed_to_hid_weights_gradient = embedding_layer_state * back_propagated_deriv_1.T; # dim=(numhid1 * numwords, numhid2)
+        embed_to_hid_weights_gradient = np.dot(embedding_layer_state, back_propagated_deriv_1.T); # dim=(numhid1 * numwords, numhid2)
         
-        hid_bias_gradient = sum(back_propagated_deriv_1, 2); # dim=(numhid2, 1)
+        hid_bias_gradient = sum(back_propagated_deriv_1, 1); # dim=(numhid2, 1)
 
-        back_propagated_deriv_2 = embed_to_hid_weights * back_propagated_deriv_1; # dim=(numhid2, batchsize)
+        back_propagated_deriv_2 = np.dot(embed_to_hid_weights, back_propagated_deriv_1); # dim=(numhid2, batchsize)
 
-        word_embedding_weights_gradient[:] = 0;
+        #word_embedding_weights_gradient[:] = 0;
+        word_embedding_weights_gradient = np.zeros((vocab_size, numhid1));
         # EMBEDDING LAYER.
         for w in range(numwords):
             word_embedding_weights_gradient = word_embedding_weights_gradient + expansion_matrix[:, input_batch[w, :]] * (back_propagated_deriv_2[1 + (w - 1) * numhid1 : w * numhid1, :].T);
 
         return [hid_to_output_weights_gradient, output_bias_gradient, embed_to_hid_weights_gradient, hid_bias_gradient, word_embedding_weights_gradient];
+
 
     # TRAIN.
     for epoch in range(epochs):
@@ -121,8 +125,8 @@ def train(epochs):
             input_batch = train_input[:, :, m];
             target_batch = train_target[:, :, m];
     
-            [hid_to_output_weights_gradient, output_bias_gradient, embed_to_hid_weights_gradient, hid_bias_gradient, word_embedding_weights_gradient] = fprop_gradient(input_batch, target_batch);
-              
+            [hid_to_output_weights_gradient, output_bias_gradient, embed_to_hid_weights_gradient, hid_bias_gradient, word_embedding_weights_gradient] = fprop_gradient(input_batch, target_batch, counter, this_chunk_CE, trainset_CE);
+            
             # UPDATE DELTA WITH GRADIENT AND MOMENTUM METHOD
             word_embedding_weights_delta = momentum * word_embedding_weights_delta + word_embedding_weights_gradient / batchsize;
             embed_to_hid_weights_delta = momentum * embed_to_hid_weights_delta + embed_to_hid_weights_gradient / batchsize;
