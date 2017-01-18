@@ -62,19 +62,19 @@ def fprop(input_batch, word_embedding_weights, embed_to_hid_weights, hid_to_outp
 
     # COMPUTE STATE OF WORD EMBEDDING LAYER.
     # Look up the inputs word indices in the word_embedding_weights matrix.
-    reshape(input_batch, (1,-1));
-    word_embedding_weights[reshape(input_batch, (1,-1)),:]
+    #reshape(input_batch, (1,-1)); # DEBUG LINE
+    #word_embedding_weights[reshape(input_batch, (1,-1)),:]; # DEBUG LINE
     embedding_layer_state = reshape(word_embedding_weights[reshape(input_batch, (1,-1)),:].T, (numhid1 * numwords, -1));
 
     # COMPUTE STATE OF HIDDEN LAYER.
     # a) Compute inputs to hidden units.
-    inputs_to_hidden_units = embed_to_hid_weights.T * embedding_layer_state + repmat(hid_bias, 1, batchsize);
+    inputs_to_hidden_units = np.dot(embed_to_hid_weights.T , embedding_layer_state) + repmat(hid_bias, 1, batchsize);
     # b) Apply logistic activation function.
     hidden_layer_state = logistic(inputs_to_hidden_units); # dim=(numhid2, batchsize)
 
     # COMPUTE STATE OF OUTPUT LAYER.
     # a) Compute inputs to softmax.
-    inputs_to_softmax = hid_to_output_weights.T * hidden_layer_state + repmat(output_bias, 1, batchsize); # dim=(vocab_size, batchsize)
+    inputs_to_softmax = np.dot(hid_to_output_weights.T, hidden_layer_state) + repmat(output_bias, 1, batchsize); # dim=(vocab_size, batchsize)
     # b) Apply softmax function
     output_layer_state = softmax(inputs_to_softmax);
 
