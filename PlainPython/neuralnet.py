@@ -1,4 +1,5 @@
 
+import math
 import numpy as np
 from numpy import size, reshape
 from numpy.matlib import repmat
@@ -116,4 +117,36 @@ def predict_next_word(word1, word2, word3, model, k):
 
     for i in range(k):
         print "%s %s %s %s Prob: %.5f", word1, word2, word3, model['vocab'][indices[i]], prob[i];
+
+
+
+def display_nearest_words(word, model, k):
+    # Shows the k-nearest words to the query word.
+    # Inputs:
+    #   word: The query word as a string.
+    #   model: Model returned by the training script.
+    #   k: The number of nearest words to display.
+    # Example usage:
+    #   display_nearest_words('school', model, 10);
+
+    word_embedding_weights = model['word_embedding_weights'];
+    
+    try:
+        wid = model['vocab'].flatten().tolist().index(word);
+    except:
+        raise ValueError("Word %s not in vocabulary." % word);
+
+    # Compute distance to every other word.
+    vocab_size = size(model['vocab'], 1);
+    word_rep = word_embedding_weights[wid, :];
+    diff = word_embedding_weights - repmat(word_rep, vocab_size, 1);
+    distance = math.sqrt(np.sum(diff * diff, 1));
+
+    # Sort by distance.
+    raise ValueError('Function code is not complete');
+    [d, order] = sort(distance);
+    order = order[1:k+1];  # The nearest word is the query word itself, skip that.
+    
+    for i in range(k):
+        print "%s %.2f" % (model['vocab'][order[i]], distance[order[i]]);
 
