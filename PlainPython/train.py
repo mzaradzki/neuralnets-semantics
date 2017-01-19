@@ -58,7 +58,6 @@ def train(epochs):
 
 
     def ModelCrossEntropy(_input, _target):
-        print 'MCE';
         assert _input.shape[0] == numwords;
         assert _target.shape == (_input.shape[1],);
         assert word_embedding_weights.shape == (vocab_size, numhid1);
@@ -69,33 +68,36 @@ def train(epochs):
         [embedding_layer_state, hidden_layer_state, output_layer_state] = fprop(_input, word_embedding_weights, embed_to_hid_weights, hid_to_output_weights, hid_bias, output_bias);
         datasetsize = size(_input, 1);
         expanded_valid_target = expansion_matrix[:, _target];
-        print expanded_valid_target.shape;
-        print np.log(output_layer_state + tiny).shape;
+        #print expanded_valid_target.shape;
+        #print np.log(output_layer_state + tiny).shape;
         return -np.sum(expanded_valid_target * np.log(output_layer_state + tiny)) / datasetsize;
 
     def fprop_gradient(_input, _target, _counter, _this_chunk_CE, _trainset_CE):
         # FORWARD PROPAGATE.
         # Compute the state of each layer in the network given the input batch
         # and all weights and biases
-        print word_embedding_weights.shape;
+        #print word_embedding_weights.shape;
         [embedding_layer_state, hidden_layer_state, output_layer_state] = fprop(_input, word_embedding_weights, embed_to_hid_weights, hid_to_output_weights, hid_bias, output_bias);
-        print output_layer_state.shape;
+        #print output_layer_state.shape;
         # COMPUTE DERIVATIVE.
         # Expand the target to a sparse 1-of-K vector.
         expanded_target_batch = expansion_matrix[:, _target][:,0,:]; # WARNING : strange indices
-        print expanded_target_batch.shape;
+        #print expanded_target_batch.shape;
+        #print type(expanded_target_batch);
+        #print type(output_layer_state);
         # Compute derivative of cross-entropy loss function.
         error_deriv = output_layer_state - expanded_target_batch;
+        #print error_deriv.shape;
+        #print type(error_deriv.shape);
 
         # MEASURE LOSS FUNCTION.
         CE = -np.sum(np.sum(expanded_target_batch * np.log(output_layer_state + tiny))) / batchsize;
         
         _counter = _counter + 1;
         _this_chunk_CE = _this_chunk_CE + (CE - _this_chunk_CE) / _counter;
-        _trainset_CE = _trainset_CE + (CE - _trainset_CE) / m;
-        print "Batch %d Train CE %.3f" % (m, _this_chunk_CE);
+        _trainset_CE = _trainset_CE + (CE - _trainset_CE) / (m+1);
         if (m % show_training_CE_after) == 0:
-            print '1' + '\n';
+            print "Batch %d Train CE %.3f \n" % (m, _this_chunk_CE);
             _counter = 0;
             _this_chunk_CE = 0;
 
@@ -107,25 +109,27 @@ def train(epochs):
         # OUTPUT LAYER.
         hid_to_output_weights_gradient =  np.dot(hidden_layer_state, error_deriv.T);
         assert hid_to_output_weights_gradient.shape == hid_to_output_weights_delta.shape;
-        output_bias_gradient = np.sum(error_deriv, 0);
+        output_bias_gradient = np.sum(error_deriv, 1).reshape((-1,1));
+        #print output_bias_gradient.shape, output_bias_delta.shape;
         assert output_bias_gradient.shape == output_bias_delta.shape;
         back_propagated_deriv_1 = np.dot(hid_to_output_weights, error_deriv) * hidden_layer_state * (1 - hidden_layer_state);
 
         # HIDDEN LAYER.
         embed_to_hid_weights_gradient = np.dot(embedding_layer_state, back_propagated_deriv_1.T); # dim=(numhid1 * numwords, numhid2)
         assert embed_to_hid_weights_gradient.shape == embed_to_hid_weights_delta.shape;
-        hid_bias_gradient = np.sum(back_propagated_deriv_1, 1); # dim=(numhid2, 1)
+        hid_bias_gradient = np.sum(back_propagated_deriv_1, 1).reshape((-1,1)); # dim=(numhid2, 1)
+        #print hid_bias_gradient.shape, hid_bias_delta.shape;
         assert hid_bias_gradient.shape == hid_bias_delta.shape;
         
         back_propagated_deriv_2 = np.dot(embed_to_hid_weights, back_propagated_deriv_1); # dim=(numhid2, batchsize)
 
         #word_embedding_weights_gradient[:] = 0;
         word_embedding_weights_gradient = np.zeros((vocab_size, numhid1));
-        print word_embedding_weights_gradient.shape;
+        #print word_embedding_weights_gradient.shape;
         # EMBEDDING LAYER.
         for w in range(numwords):
-            print expansion_matrix[:, input_batch[w, :]].shape;
-            print back_propagated_deriv_2[w*numhid1 : (w+1)*numhid1, :].T.shape;
+            #print expansion_matrix[:, input_batch[w, :]].shape;
+            #print back_propagated_deriv_2[w*numhid1 : (w+1)*numhid1, :].T.shape;
             word_embedding_weights_gradient = word_embedding_weights_gradient + np.dot(expansion_matrix[:, input_batch[w, :]], back_propagated_deriv_2[w*numhid1 : (w+1)*numhid1, :].T);
         assert word_embedding_weights_gradient.shape == word_embedding_weights_delta.shape;
         
@@ -211,6 +215,6 @@ def train(epochs):
     end_time = time.time();
     diff = end_time - start_time;
 
-    print "Training took %.2f seconds", diff;
+    print "Training took %.2f seconds" % diff;
 
     return model;
