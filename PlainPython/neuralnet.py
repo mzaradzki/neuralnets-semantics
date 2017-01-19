@@ -117,11 +117,13 @@ def predict_next_word(word1, word2, word3, model, k):
                                                                             model['hid_bias'],
                                                                             model['output_bias']);
 
-    raise ValueError('Function code is not complete');
-    [prob, indices] = sort(output_layer_state, 'descend');
-
+    #print output_layer_state.shape
+    probability = output_layer_state; # clearer name
+    probability_as_list = output_layer_state.flatten().tolist();
+    indices = [i[0] for i in sorted(enumerate(probability_as_list), key=lambda x:x[1], reverse=True)];
+    
     for i in range(k):
-        print "%s %s %s %s Prob: %.5f", word1, word2, word3, model['vocab'][indices[i]], prob[i];
+        print "%s %s %s %s Prob: %.5f" % (word1, word2, word3, model['vocab'][0,indices[i]], probability[indices[i],0]);
 
 
 
@@ -146,12 +148,12 @@ def display_nearest_words(word, model, k):
     word_rep = word_embedding_weights[wid, :];
     diff = word_embedding_weights - repmat(word_rep, vocab_size, 1);
     distance = np.sqrt(np.sum(diff * diff, 1));
+    #print distance.shape
 
     # Sort by distance.
-    raise ValueError('Function code is not complete');
-    [d, order] = sort(distance);
-    order = order[1:k+1];  # The nearest word is the query word itself, skip that.
+    distance_as_list = distance.flatten().tolist();
+    order = [i[0] for i in sorted(enumerate(distance_as_list), key=lambda x:x[1])];
     
-    for i in range(k):
-        print "%s %.2f" % (model['vocab'][order[i]], distance[order[i]]);
+    for i in range(1,k+1): # Skip 0 as the nearest word is the query word itself
+        print "%s %.2f" % (model['vocab'][0,order[i]], distance[order[i]]);
 
