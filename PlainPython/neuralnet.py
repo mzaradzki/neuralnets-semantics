@@ -109,8 +109,13 @@ def predict_next_word(word1, word2, word3, model, k):
     except:
         raise ValueError("Word %s not in vocabulary." % word3);
 
-    triplet = np.array([id1, id2, id3]); # WARNING : we transpose ?
-    [embedding_layer_state, hidden_layer_state, output_layer_state] = fprop(triplet, model.word_embedding_weights, model.embed_to_hid_weights, model.hid_to_output_weights, model.hid_bias, model.output_bias);
+    triplet = np.array([[id1, id2, id3]]).T;
+    [embedding_layer_state, hidden_layer_state, output_layer_state] = fprop(triplet,
+                                                                            model['word_embedding_weights'],
+                                                                            model['embed_to_hid_weights'],
+                                                                            model['hid_to_output_weights'],
+                                                                            model['hid_bias'],
+                                                                            model['output_bias']);
 
     raise ValueError('Function code is not complete');
     [prob, indices] = sort(output_layer_state, 'descend');
@@ -140,7 +145,7 @@ def display_nearest_words(word, model, k):
     vocab_size = size(model['vocab'], 1);
     word_rep = word_embedding_weights[wid, :];
     diff = word_embedding_weights - repmat(word_rep, vocab_size, 1);
-    distance = math.sqrt(np.sum(diff * diff, 1));
+    distance = np.sqrt(np.sum(diff * diff, 1));
 
     # Sort by distance.
     raise ValueError('Function code is not complete');
