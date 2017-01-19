@@ -58,10 +58,20 @@ def train(epochs):
 
 
     def ModelCrossEntropy(_input, _target):
+        print 'MCE';
+        assert _input.shape[0] == numwords;
+        assert _target.shape == (_input.shape[1],);
+        assert word_embedding_weights.shape == (vocab_size, numhid1);
+        assert embed_to_hid_weights.shape == (numwords * numhid1, numhid2);
+        assert hid_to_output_weights.shape == (numhid2, vocab_size);
+        assert hid_bias.shape == (numhid2, 1);
+        assert output_bias.shape == (vocab_size, 1);
         [embedding_layer_state, hidden_layer_state, output_layer_state] = fprop(_input, word_embedding_weights, embed_to_hid_weights, hid_to_output_weights, hid_bias, output_bias);
         datasetsize = size(_input, 1);
         expanded_valid_target = expansion_matrix[:, _target];
-        return -sum(sum(expanded_valid_target * np.log(output_layer_state + tiny))) / datasetsize;
+        print expanded_valid_target.shape;
+        print np.log(output_layer_state + tiny).shape;
+        return -np.sum(expanded_valid_target * np.log(output_layer_state + tiny)) / datasetsize;
 
     def fprop_gradient(_input, _target, _counter, _this_chunk_CE, _trainset_CE):
         # FORWARD PROPAGATE.
@@ -81,7 +91,7 @@ def train(epochs):
         CE = -np.sum(np.sum(expanded_target_batch * np.log(output_layer_state + tiny))) / batchsize;
         
         _counter = _counter + 1;
-        _this_chunk_CE = _this_chunk_CE + (CE - _this_chunk_CE) / counter;
+        _this_chunk_CE = _this_chunk_CE + (CE - _this_chunk_CE) / _counter;
         _trainset_CE = _trainset_CE + (CE - _trainset_CE) / m;
         print "Batch %d Train CE %.3f" % (m, _this_chunk_CE);
         if (m % show_training_CE_after) == 0:
@@ -96,22 +106,29 @@ def train(epochs):
         # BACK PROPAGATE.
         # OUTPUT LAYER.
         hid_to_output_weights_gradient =  np.dot(hidden_layer_state, error_deriv.T);
-        output_bias_gradient = np.sum(error_deriv, 1);
+        assert hid_to_output_weights_gradient.shape == hid_to_output_weights_delta.shape;
+        output_bias_gradient = np.sum(error_deriv, 0);
+        assert output_bias_gradient.shape == output_bias_delta.shape;
         back_propagated_deriv_1 = np.dot(hid_to_output_weights, error_deriv) * hidden_layer_state * (1 - hidden_layer_state);
 
         # HIDDEN LAYER.
         embed_to_hid_weights_gradient = np.dot(embedding_layer_state, back_propagated_deriv_1.T); # dim=(numhid1 * numwords, numhid2)
+        assert embed_to_hid_weights_gradient.shape == embed_to_hid_weights_delta.shape;
+        hid_bias_gradient = np.sum(back_propagated_deriv_1, 1); # dim=(numhid2, 1)
+        assert hid_bias_gradient.shape == hid_bias_delta.shape;
         
-        hid_bias_gradient = sum(back_propagated_deriv_1, 1); # dim=(numhid2, 1)
-
         back_propagated_deriv_2 = np.dot(embed_to_hid_weights, back_propagated_deriv_1); # dim=(numhid2, batchsize)
 
         #word_embedding_weights_gradient[:] = 0;
         word_embedding_weights_gradient = np.zeros((vocab_size, numhid1));
+        print word_embedding_weights_gradient.shape;
         # EMBEDDING LAYER.
         for w in range(numwords):
-            word_embedding_weights_gradient = word_embedding_weights_gradient + expansion_matrix[:, input_batch[w, :]] * (back_propagated_deriv_2[1 + (w - 1) * numhid1 : w * numhid1, :].T);
-
+            print expansion_matrix[:, input_batch[w, :]].shape;
+            print back_propagated_deriv_2[w*numhid1 : (w+1)*numhid1, :].T.shape;
+            word_embedding_weights_gradient = word_embedding_weights_gradient + np.dot(expansion_matrix[:, input_batch[w, :]], back_propagated_deriv_2[w*numhid1 : (w+1)*numhid1, :].T);
+        assert word_embedding_weights_gradient.shape == word_embedding_weights_delta.shape;
+        
         return [hid_to_output_weights_gradient, output_bias_gradient, embed_to_hid_weights_gradient, hid_bias_gradient, word_embedding_weights_gradient];
 
 
@@ -142,12 +159,12 @@ def train(epochs):
             output_bias = output_bias - learning_rate * output_bias_delta;
     
             # VALIDATE.
-            if (m % show_validation_CE_after) == 0:
+            if ((m != 0) and ((m % show_validation_CE_after) == 0)): # skip 0 to avoid / by 0
                 print "Running validation ...";
                 if True:
                     fflush(1);
                 CE = ModelCrossEntropy(valid_input, valid_target);
-                print " Validation CE %.3f" % CE;
+                #print " Validation CE %.3f" % CE;
                 if True:
                     fflush(1);
              # end of validation
