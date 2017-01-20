@@ -20,8 +20,8 @@ class NextWord(object):
         theano_rng = None,
         input = None,
         output = None,
-        n_embed = 784,
-        n_hidden = 500,
+        n_embed = 200,
+        n_hidden = 200,
         wW2E = None,
         wE2H = None,
         wH2O = None,
@@ -185,38 +185,50 @@ class NextWord(object):
         
         A = self.wW2E # dim = (vocab, embed)
         #W = words # dim = (batchsize, nbwords)
+        
+        return self.wW2E[words,:].reshape((-1,self.numwords*self.n_embed))
 
         AA = T.matrix()
         WW = T.imatrix()
         #CC = AA[WW,:].reshape((batchsize,nbwords*self.n_embed))
         CC = AA[WW,:].reshape((-1,self.numwords*self.n_embed))
+        print('a')
+        print(type(AA))
+        print(type(self.wW2E))
+        print(type(WW))
+        print(type(words))
         f = theano.function([AA, WW], CC, allow_input_downcast=True)
-
+        print('b')
         return f(A.astype(theano.config.floatX), words)
     
     def get_hidden_values(self, embed):
         """ Computes the values of the hidden layer """
+        print('H')
         return T.nnet.sigmoid(T.dot(embed, self.wE2H) + self.bH)
 
     def get_output(self, hidden):
         """ Computes the reconstructed input given the values of the hidden layer """
+        print('O')
         return T.nnet.softmax(T.dot(hidden, self.wH2O) + self.bO)
 
     def get_cost_updates(self, learning_rate):
         """ This function computes the cost and the updates for one trainng step of the model """
         embed = self.get_embed_values(self.x)
         hidden = self.get_hidden_values(embed)
-        ouput = self.get_output(hidden)
+        output = self.get_output(hidden)
         # note : we sum over the size of a datapoint; if we are using
         #        minibatches, L will be a vector, with one entry per
         #        example in minibatch
-        L = - T.sum(self.y * T.log(output) + (1 - self.y) * T.log(1 - output), axis=1)
+        #L = - T.sum(self.y * T.log(output) + (1 - self.y) * T.log(1 - output), axis=1)
+        L = - T.sum(output) - T.sum(self.y)
         # note : L is now a vector, where each element is the
         #        cross-entropy cost of the reconstruction of the
         #        corresponding example of the minibatch. We need to
         #        compute the average of all these to get the cost of
         #        the minibatch
-        cost = T.mean(L)
+        #cost = T.mean(L)
+        cost = L
+        print(cost)
 
         # compute the gradients of the cost with respect to its parameters
         gparams = T.grad(cost, self.params)
@@ -260,8 +272,8 @@ print(D[0])
 
 
 # Temporary snippet to check the class is correctly defined
-x = T.matrix('x')
-y = T.vector('y')
+x = T.imatrix('x')
+y = T.imatrix('y')
 
 rng = numpy.random.RandomState(123)
 theano_rng = RandomStreams(rng.randint(2 ** 30))
@@ -282,9 +294,7 @@ nw = NextWord(
 
 
 
-def test_NextWord(learning_rate=0.1, training_epochs=15,
-            dataset='mnist.pkl.gz',
-            batch_size=20, output_folder='dA_plots'):
+def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
 
     """
     :type learning_rate: float
@@ -298,17 +308,41 @@ def test_NextWord(learning_rate=0.1, training_epochs=15,
     :param dataset: path to the picked dataset
 
     """
-    datasets = load_data(dataset)
-    train_set_x, train_set_y = datasets[0]
+    #datasets = load_data(dataset)
+    #train_set_x, train_set_y = datasets[0]
+    [train_input, train_target, valid_input, valid_target, test_input, test_target, vocab] = load_data(batch_size)
 
+    """ Function that loads the dataset into shared variables
+
+        The reason we store our dataset in shared variables is to allow
+        Theano to copy it into the GPU memory (when code is run on GPU).
+        Since copying data into the GPU is slow, copying a minibatch everytime
+        is needed (the default behaviour if the data is not in a shared
+        variable) would lead to a large decrease in performance.
+    """
+    borrow = True
+    shared_x = theano.shared(numpy.asarray(train_input, dtype=theano.config.floatX),borrow=borrow)
+    shared_y = theano.shared(numpy.asarray(train_target, dtype=theano.config.floatX), borrow=borrow)
+    # When storing data on the GPU it has to be stored as floats
+    # therefore we will store the labels as ``floatX`` as well
+    # (``shared_y`` does exactly that). But during our computations
+    # we need them as ints (we use labels as index, and if they are
+    # floats it doesn't make sense) therefore instead of returning
+    # ``shared_y`` we will have to cast it to int. This little hack
+    # lets ous get around this issue
+    train_set_x = T.cast(shared_x, 'int32')
+    train_set_y = T.cast(shared_y, 'int32')
+    
+    
     # compute number of minibatches for training, validation and testing
-    n_train_batches = train_set_x.get_value(borrow=True).shape[0] // batch_size
+    #n_train_batches = train_set_x.get_value(borrow=True).shape[0] // batch_size
+    n_train_batches = min(500, train_input.shape[-1]) # 5 to test
 
     # start-snippet-2
     # allocate symbolic variables for the data
     index = T.lscalar()    # index to a [mini]batch
-    x = T.matrix('x')
-    y = T.vector('y')
+    x = T.imatrix('x')
+    y = T.imatrix('y')
 
     rng = numpy.random.RandomState(123)
     theano_rng = RandomStreams(rng.randint(2 ** 30))
@@ -318,22 +352,24 @@ def test_NextWord(learning_rate=0.1, training_epochs=15,
         theano_rng = theano_rng,
         input = x,
         output = y,
-        n_visible = 100,
+        n_embed = 50,
         n_hidden = 200
     )
-
+    print(nw)
     cost, updates = nw.get_cost_updates(learning_rate=learning_rate)
-
+    print(cost, updates)
     train_nw = theano.function(
         [index],
         cost,
         updates=updates,
         givens={
-            x: train_set_x[index * batch_size: (index + 1) * batch_size],
-            y: train_set_y[index * batch_size: (index + 1) * batch_size]
+            #x: train_set_x[index * batch_size: (index + 1) * batch_size],
+            x: train_set_x[:,:,index],
+            #y: train_set_y[index * batch_size: (index + 1) * batch_size]
+            y: train_set_y[:,:,index]
         }
     )
-
+    print(train_nw)
     start_time = timeit.default_timer()
 
     ############
@@ -345,6 +381,7 @@ def test_NextWord(learning_rate=0.1, training_epochs=15,
         # go through trainng set
         c = []
         for batch_index in range(n_train_batches):
+            #print(batch_index)
             c.append(train_nw(batch_index))
 
         print('Training epoch %d, cost ' % epoch, numpy.mean(c, dtype='float64'))
@@ -353,7 +390,5 @@ def test_NextWord(learning_rate=0.1, training_epochs=15,
 
     training_time = (end_time - start_time)
 
-    print(('The no corruption code for file ' +
-           os.path.split(__file__)[1] +
-           ' ran for %.2fm' % ((training_time) / 60.)), file=sys.stderr)
+    print('The code ran for %.2fm' % ((training_time) / 60.))
     
