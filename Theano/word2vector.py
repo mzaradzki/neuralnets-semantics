@@ -221,6 +221,33 @@ class NextWord(object):
         return (cost, updates)
 
 
+# Temporary snippet to check dimension consistency
+# Reshape demo based on :
+# http://stackoverflow.com/questions/33947726/indexing-tensor-with-index-matrix-in-theano
+
+from random import randint
+
+nbwords = 3
+vocab = 30
+embed = 5
+batchsize = 10
+
+A = numpy.array([[int(str(i+1)+'000'+str(j+1)) for j in range(embed)] for i in range(vocab)]).reshape(vocab, embed)
+B = numpy.array([randint(0,vocab-1) for i in range(nbwords*batchsize)]).reshape(batchsize, nbwords)
+
+AA = T.matrix()
+BB = T.imatrix()
+
+#CC = AA[T.arange(AA.shape[0]).reshape((-1, 1)), T.arange(AA.shape[1]), BB]
+#CC = AA[BB,:]
+CC = AA[BB,:].reshape((batchsize,nbwords*embed))
+
+f = theano.function([AA, BB], CC, allow_input_downcast=True)
+
+D = f(A.astype(theano.config.floatX), B)
+
+print(D[0])
+
 
 # Temporary snippet to check the class is correctly defined
 x = T.matrix('x')
