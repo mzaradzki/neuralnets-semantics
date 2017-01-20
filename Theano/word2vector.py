@@ -11,8 +11,6 @@ import theano
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-#from logistic_sgd import load_data
-
 
 class NextWord(object):
 
@@ -75,14 +73,14 @@ class NextWord(object):
 
 
         """
-        numwords = 3 # it we use 3-grams to predict the 4th word
+        self.numwords = 3 # i.e. we use 3-grams to predict the 4th word
         #batchsize
-        vocab_size = 250
+        self.vocab_size = 250
         #numhid1
         #numhid2 # numhid2 is the number of hidden units.
         self.n_embed = n_embed
         self.n_hidden = n_hidden
-        
+        self.n_output = self.vocab_size #self.n_embed
         #numhid1 = n_embed * numwords
 
         # create a Theano random generator that gives symbolic random values
@@ -99,9 +97,9 @@ class NextWord(object):
             # theano.config.floatX so that the code is runable on GPU
             initial_wW2E = numpy.asarray(
                 numpy_rng.uniform(
-                    low=-4 * numpy.sqrt(6. / (vocab_size + n_embed)),
-                    high=4 * numpy.sqrt(6. / (vocab_size + n_embed)),
-                    size=(vocab_size, n_embed)
+                    low=-4 * numpy.sqrt(6. / (self.vocab_size + n_embed)),
+                    high=4 * numpy.sqrt(6. / (self.vocab_size + n_embed)),
+                    size=(self.vocab_size, n_embed)
                 ),
                 dtype=theano.config.floatX
             )
@@ -113,9 +111,9 @@ class NextWord(object):
             # theano.config.floatX so that the code is runable on GPU
             initial_wE2H = numpy.asarray(
                 numpy_rng.uniform(
-                    low=-4 * numpy.sqrt(6. / (n_embed + n_hidden)),
-                    high=4 * numpy.sqrt(6. / (n_embed + n_hidden)),
-                    size=(n_embed, n_hidden)
+                    low=-4 * numpy.sqrt(6. / (n_embed*self.numwords + n_hidden)),
+                    high=4 * numpy.sqrt(6. / (n_embed*self.numwords + n_hidden)),
+                    size=(n_embed*self.numwords, n_hidden)
                 ),
                 dtype=theano.config.floatX
             )
@@ -137,9 +135,9 @@ class NextWord(object):
             # theano.config.floatX so that the code is runable on GPU
             initial_wH2O = numpy.asarray(
                 numpy_rng.uniform(
-                    low=-4 * numpy.sqrt(6. / (n_hidden + n_output)),
-                    high=4 * numpy.sqrt(6. / (n_hidden + n_output)),
-                    size=(n_hidden, n_output)
+                    low=-4 * numpy.sqrt(6. / (n_hidden + self.n_output)),
+                    high=4 * numpy.sqrt(6. / (n_hidden + self.n_output)),
+                    size=(n_hidden, self.n_output)
                 ),
                 dtype=theano.config.floatX
             )
@@ -148,7 +146,7 @@ class NextWord(object):
         if not bO: # output_bias: Bias of the output layer as a matrix of size vocab_size X 1.
             bO = theano.shared(
                 value=numpy.zeros(
-                    n_output,
+                    self.n_output,
                     dtype=theano.config.floatX
                 ),
                 name='bO',
@@ -182,8 +180,19 @@ class NextWord(object):
         """ Computes the values of the hidden layer """
         #embedding_layer_state = reshape(...
         #word_embedding_weights(reshape(input_batch, 1, []),:)',...
-        #numhid1 * numwords, []);
+        #n_embed * numwords, []);
         # see : http://stackoverflow.com/questions/33947726/indexing-tensor-with-index-matrix-in-theano
+        
+        A = self.wW2E # dim = (vocab, embed)
+        #W = words # dim = (batchsize, nbwords)
+
+        AA = T.matrix()
+        WW = T.imatrix()
+        #CC = AA[WW,:].reshape((batchsize,nbwords*self.n_embed))
+        CC = AA[WW,:].reshape((-1,self.numwords*self.n_embed))
+        f = theano.function([AA, WW], CC, allow_input_downcast=True)
+
+        return f(A.astype(theano.config.floatX), words)
     
     def get_hidden_values(self, embed):
         """ Computes the values of the hidden layer """
@@ -195,7 +204,6 @@ class NextWord(object):
 
     def get_cost_updates(self, learning_rate):
         """ This function computes the cost and the updates for one trainng step of the model """
-
         embed = self.get_embed_values(self.x)
         hidden = self.get_hidden_values(embed)
         ouput = self.get_output(hidden)
@@ -240,12 +248,14 @@ BB = T.imatrix()
 
 #CC = AA[T.arange(AA.shape[0]).reshape((-1, 1)), T.arange(AA.shape[1]), BB]
 #CC = AA[BB,:]
-CC = AA[BB,:].reshape((batchsize,nbwords*embed))
+#CC = AA[BB,:].reshape((batchsize,nbwords*embed))
+CC = AA[BB,:].reshape((-1,nbwords*embed))
 
 f = theano.function([AA, BB], CC, allow_input_downcast=True)
 
 D = f(A.astype(theano.config.floatX), B)
 
+print(D.shape)
 print(D[0])
 
 
