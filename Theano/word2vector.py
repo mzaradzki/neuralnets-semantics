@@ -21,6 +21,7 @@ class NextWord(object):
         numpy_rng,
         theano_rng = None,
         input = None,
+        output = None,
         n_embed = 784,
         n_hidden = 500,
         wW2E = None,
@@ -158,19 +159,24 @@ class NextWord(object):
         self.wW2E = wW2E
         self.wE2H = wE2H
         self.wH2O = wH2O
-        # b corresponds to the bias of the hidden
+        # b corresponds to the bias of the hidden activations
         self.bH = bH
         self.bO = bO
         self.theano_rng = theano_rng
         # if no input is given, generate a variable representing the input
         if input is None:
-            # we use a matrix because we expect a minibatch of several
-            # examples, each example being a row
+            # we use a matrix because we expect a minibatch of several examples
             self.x = T.dmatrix(name='input')
         else:
             self.x = input
+            
+        if output is None:
+            # we use a vector because we expect a minibatch of several examples
+            self.y = T.dvector(name='output')
+        else:
+            self.y = output
 
-        self.params = [self.wE2H, self.wH2O, self.bH, self.bO]
+        self.params = [self.wW2E, self.wE2H, self.wH2O, self.bH, self.bO]
 
     def get_embed_values(self, words):
         """ Computes the values of the hidden layer """
@@ -187,8 +193,8 @@ class NextWord(object):
         """ Computes the reconstructed input given the values of the hidden layer """
         return T.nnet.softmax(T.dot(hidden, self.wH2O) + self.bO)
 
-    def get_cost_updates(self, corruption_level, learning_rate):
-        """ This function computes the cost and the updates for one trainng step of the dA """
+    def get_cost_updates(self, learning_rate):
+        """ This function computes the cost and the updates for one trainng step of the model """
 
         embed = self.get_embed_values(self.x)
         hidden = self.get_hidden_values(embed)
@@ -196,7 +202,7 @@ class NextWord(object):
         # note : we sum over the size of a datapoint; if we are using
         #        minibatches, L will be a vector, with one entry per
         #        example in minibatch
-        L = - T.sum(self.x * T.log(z) + (1 - self.x) * T.log(1 - z), axis=1)
+        L = - T.sum(self.y * T.log(output) + (1 - self.y) * T.log(1 - output), axis=1)
         # note : L is now a vector, where each element is the
         #        cross-entropy cost of the reconstruction of the
         #        corresponding example of the minibatch. We need to
@@ -204,36 +210,39 @@ class NextWord(object):
         #        the minibatch
         cost = T.mean(L)
 
-        # compute the gradients of the cost of the `dA` with respect
-        # to its parameters
+        # compute the gradients of the cost with respect to its parameters
         gparams = T.grad(cost, self.params)
         # generate the list of updates
         updates = [
             (param, param - learning_rate * gparam)
             for param, gparam in zip(self.params, gparams)
-        ]
+        ] # WARNING : no momentum at present
 
         return (cost, updates)
 
 
+
 # Temporary snippet to check the class is correctly defined
 x = T.matrix('x')
+y = T.vector('y')
 
 rng = numpy.random.RandomState(123)
 theano_rng = RandomStreams(rng.randint(2 ** 30))
 
 nw = NextWord(
-        numpy_rng=rng,
-        theano_rng=theano_rng,
-        input=x,
-        n_embed = 784,
-        n_hidden = 500,
+        numpy_rng = rng,
+        theano_rng = theano_rng,
+        input = x,
+        output = y,
+        n_embed = 50,
+        n_hidden = 100,
         wW2E = None,
         wE2H = None,
         wH2O = None,
         bH = None,
         bO = None
     )
+
 
 
 def test_NextWord(learning_rate=0.1, training_epochs=15,
@@ -261,31 +270,30 @@ def test_NextWord(learning_rate=0.1, training_epochs=15,
     # start-snippet-2
     # allocate symbolic variables for the data
     index = T.lscalar()    # index to a [mini]batch
-    x = T.matrix('x')  # the data is presented as rasterized images
-    # end-snippet-2
+    x = T.matrix('x')
+    y = T.vector('y')
 
     rng = numpy.random.RandomState(123)
     theano_rng = RandomStreams(rng.randint(2 ** 30))
 
     nw = NextWord(
-        numpy_rng=rng,
-        theano_rng=theano_rng,
-        input=x,
-        n_visible=28 * 28,
-        n_hidden=500
+        numpy_rng = rng,
+        theano_rng = theano_rng,
+        input = x,
+        output = y,
+        n_visible = 100,
+        n_hidden = 200
     )
 
-    cost, updates = nw.get_cost_updates(
-        corruption_level=0.,
-        learning_rate=learning_rate
-    )
+    cost, updates = nw.get_cost_updates(learning_rate=learning_rate)
 
     train_nw = theano.function(
         [index],
         cost,
         updates=updates,
         givens={
-            x: train_set_x[index * batch_size: (index + 1) * batch_size]
+            x: train_set_x[index * batch_size: (index + 1) * batch_size],
+            y: train_set_y[index * batch_size: (index + 1) * batch_size]
         }
     )
 
@@ -300,7 +308,7 @@ def test_NextWord(learning_rate=0.1, training_epochs=15,
         # go through trainng set
         c = []
         for batch_index in range(n_train_batches):
-            c.append(train_da(batch_index))
+            c.append(train_nw(batch_index))
 
         print('Training epoch %d, cost ' % epoch, numpy.mean(c, dtype='float64'))
 
