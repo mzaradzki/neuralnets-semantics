@@ -1,5 +1,4 @@
 
-
 from __future__ import print_function
 
 import os
@@ -12,39 +11,30 @@ import theano
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
-from logistic_sgd import load_data
-from utils import tile_raster_images
-
-try:
-    import PIL.Image as Image
-except ImportError:
-    import Image
+#from logistic_sgd import load_data
 
 
-class dA(object):
+class NextWord(object):
 
     def __init__(
         self,
         numpy_rng,
-        theano_rng=None,
-        input=None,
-        n_visible=784,
-        n_hidden=500,
-        W=None,
-        bhid=None,
-        bvis=None
+        theano_rng = None,
+        input = None,
+        n_embed = 784,
+        n_hidden = 500,
+        wW2E = None,
+        wE2H = None,
+        wH2O = None,
+        bH = None,
+        bO = None
     ):
         """
-        Initialize the dA class by specifying the number of visible units (the
-        dimension d of the input ), the number of hidden units ( the dimension
-        d' of the latent or hidden space ) and the corruption level. The
-        constructor also receives symbolic variables for the input, weights and
-        bias. Such a symbolic variables are useful when, for example the input
-        is the result of some computations, or when weights are shared between
-        the dA and an MLP layer. When dealing with SdAs this always happens,
-        the dA on layer 2 gets as input the output of the dA on layer 1,
-        and the weights of the dA are used in the second stage of training
-        to construct an MLP.
+        Initialize the Object by specifying the number of visible units (the
+        dimension d of the input), the number of hidden units (the dimension
+        d' of the latent or hidden space).
+        The constructor also receives symbolic variables for the input, weights and
+        bias.
 
         :type numpy_rng: numpy.random.RandomState
         :param numpy_rng: number random generator used to generate weights
@@ -54,39 +44,45 @@ class dA(object):
                      generated based on a seed drawn from `rng`
 
         :type input: theano.tensor.TensorType
-        :param input: a symbolic description of the input or None for
-                      standalone dA
+        :param input: a symbolic description of the input or None for standalone model
 
-        :type n_visible: int
-        :param n_visible: number of visible units
+        :type n_embed: int
+        :param n_embed: number of word-embedding units
 
         :type n_hidden: int
-        :param n_hidden:  number of hidden units
+        :param n_hidden: number of hidden units
 
-        :type W: theano.tensor.TensorType
-        :param W: Theano variable pointing to a set of weights that should be
-                  shared belong the dA and another architecture; if dA should
-                  be standalone set this to None
+        :type wW2E: theano.tensor.TensorType
+        :param wW2E: Theano variable pointing to a set of weights that should be
+                      shared across model architecture;
+                      if model is standalone set this to None
+        
+        :type wE2H: theano.tensor.TensorType
+        :param wE2H: Theano variable pointing to a set of weights that should be
+                      shared across model architecture;
+                      if model is standalone set this to None
 
-        :type bhid: theano.tensor.TensorType
-        :param bhid: Theano variable pointing to a set of biases values (for
-                     hidden units) that should be shared belong dA and another
-                     architecture; if dA should be standalone set this to None
+        :type bH: theano.tensor.TensorType
+        :param bH: Theano variable pointing to a set of biases values (for 
+                    visible units) that should be shared across model 
+                    architecture; if model is standalone set this to None
 
-        :type bvis: theano.tensor.TensorType
-        :param bvis: Theano variable pointing to a set of biases values (for
-                     visible units) that should be shared belong dA and another
-                     architecture; if dA should be standalone set this to None
+        :type bO: theano.tensor.TensorType
+        :param bO: Theano variable pointing to a set of biases values (for 
+                    visible units) that should be shared across model 
+                    architecture; if model is standalone set this to None
 
 
         """
-        #numwords
+        numwords = 3 # it we use 3-grams to predict the 4th word
         #batchsize
-        #vocab_size
+        vocab_size = 250
         #numhid1
         #numhid2 # numhid2 is the number of hidden units.
         self.n_embed = n_embed
         self.n_hidden = n_hidden
+        
+        #numhid1 = n_embed * numwords
 
         # create a Theano random generator that gives symbolic random values
         if not theano_rng:
@@ -100,15 +96,15 @@ class dA(object):
             # Initialized with uniform sample
             # converted using asarray to dtype
             # theano.config.floatX so that the code is runable on GPU
-            initial_sW2E = numpy.asarray(
+            initial_wW2E = numpy.asarray(
                 numpy_rng.uniform(
-                    low=-4 * numpy.sqrt(6. / (vocab_size + numhid1)),
-                    high=4 * numpy.sqrt(6. / (vocab_size + numhid1)),
-                    size=(vocab_size, numhid1)
+                    low=-4 * numpy.sqrt(6. / (vocab_size + n_embed)),
+                    high=4 * numpy.sqrt(6. / (vocab_size + n_embed)),
+                    size=(vocab_size, n_embed)
                 ),
                 dtype=theano.config.floatX
             )
-            wW2E = theano.shared(value=initial_wE2H, name='wW2E', borrow=True)
+            wW2E = theano.shared(value=initial_wW2E, name='wW2E', borrow=True)
 
         if not wE2H: # embed_to_hid_weights as a matrix of size numhid1*numwords X numhid2
             # Initialized with uniform sample
@@ -124,6 +120,16 @@ class dA(object):
             )
             wE2H = theano.shared(value=initial_wE2H, name='wE2H', borrow=True)
             
+        if not bH: # hid_bias: Bias of the hidden layer as a matrix of size numhid2 X 1.
+            bH = theano.shared(
+                value=numpy.zeros(
+                    n_hidden,
+                    dtype=theano.config.floatX
+                ),
+                name='bH',
+                borrow=True
+            )
+            
         if not wH2O: # hid_to_output_weights
             # Initialized with uniform sample
             # converted using asarray to dtype
@@ -137,16 +143,6 @@ class dA(object):
                 dtype=theano.config.floatX
             )
             wH2O = theano.shared(value=initial_wH2O, name='wH2O', borrow=True)
-        
-        if not bH: # hid_bias: Bias of the hidden layer as a matrix of size numhid2 X 1.
-            bH = theano.shared(
-                value=numpy.zeros(
-                    n_hidden,
-                    dtype=theano.config.floatX
-                ),
-                name='bH',
-                borrow=True
-            )
         
         if not bO: # output_bias: Bias of the output layer as a matrix of size vocab_size X 1.
             bO = theano.shared(
@@ -181,6 +177,7 @@ class dA(object):
         #embedding_layer_state = reshape(...
         #word_embedding_weights(reshape(input_batch, 1, []),:)',...
         #numhid1 * numwords, []);
+        # see : http://stackoverflow.com/questions/33947726/indexing-tensor-with-index-matrix-in-theano
     
     def get_hidden_values(self, embed):
         """ Computes the values of the hidden layer """
@@ -188,8 +185,7 @@ class dA(object):
 
     def get_output(self, hidden):
         """ Computes the reconstructed input given the values of the hidden layer """
-        #return T.nnet.sigmoid(T.dot(hidden, self.wH2O) + self.bO)
-        raise ValueError('need to return softmax');
+        return T.nnet.softmax(T.dot(hidden, self.wH2O) + self.bO)
 
     def get_cost_updates(self, corruption_level, learning_rate):
         """ This function computes the cost and the updates for one trainng step of the dA """
@@ -220,7 +216,27 @@ class dA(object):
         return (cost, updates)
 
 
-def test_dA(learning_rate=0.1, training_epochs=15,
+# Temporary snippet to check the class is correctly defined
+x = T.matrix('x')
+
+rng = numpy.random.RandomState(123)
+theano_rng = RandomStreams(rng.randint(2 ** 30))
+
+nw = NextWord(
+        numpy_rng=rng,
+        theano_rng=theano_rng,
+        input=x,
+        n_embed = 784,
+        n_hidden = 500,
+        wW2E = None,
+        wE2H = None,
+        wH2O = None,
+        bH = None,
+        bO = None
+    )
+
+
+def test_NextWord(learning_rate=0.1, training_epochs=15,
             dataset='mnist.pkl.gz',
             batch_size=20, output_folder='dA_plots'):
 
@@ -251,7 +267,7 @@ def test_dA(learning_rate=0.1, training_epochs=15,
     rng = numpy.random.RandomState(123)
     theano_rng = RandomStreams(rng.randint(2 ** 30))
 
-    da = dA(
+    nw = NextWord(
         numpy_rng=rng,
         theano_rng=theano_rng,
         input=x,
@@ -259,12 +275,12 @@ def test_dA(learning_rate=0.1, training_epochs=15,
         n_hidden=500
     )
 
-    cost, updates = da.get_cost_updates(
+    cost, updates = nw.get_cost_updates(
         corruption_level=0.,
         learning_rate=learning_rate
     )
 
-    train_da = theano.function(
+    train_nw = theano.function(
         [index],
         cost,
         updates=updates,
