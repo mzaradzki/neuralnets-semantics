@@ -11,6 +11,9 @@ import theano
 import theano.tensor as T
 from theano.sandbox.rng_mrg import MRG_RandomStreams as RandomStreams
 
+from utilities import load_data
+batchsize = 100
+
 
 class NextWord(object):
 
@@ -76,22 +79,18 @@ class NextWord(object):
         self.numwords = 3 # i.e. we use 3-grams to predict the 4th word
         #batchsize
         self.vocab_size = 250
-        #numhid1
-        #numhid2 # numhid2 is the number of hidden units.
         self.n_embed = n_embed
         self.n_hidden = n_hidden
-        self.n_output = self.vocab_size #self.n_embed
-        #numhid1 = n_embed * numwords
+        self.n_output = self.vocab_size
+        
+        # used for one-hot-encoding of target vocab index
+        self.EYE = theano.tensor.eye(self.vocab_size, dtype=theano.config.floatX)
 
         # create a Theano random generator that gives symbolic random values
         if not theano_rng:
             theano_rng = RandomStreams(numpy_rng.randint(2 ** 30))
             
-        #word_embedding_weights: Word embedding as a matrix of size
-        #vocab_size X numhid1, where vocab_size is the size of the vocabulary
-        #numhid1 is the dimensionality of the embedding space.
-        
-        if not wW2E: # word_embedding_weights as matrix of size vocab_size X numhid1
+        if not wW2E: # word_embedding_weights as matrix of size vocab_size X n_embed
             # Initialized with uniform sample
             # converted using asarray to dtype
             # theano.config.floatX so that the code is runable on GPU
@@ -105,7 +104,7 @@ class NextWord(object):
             )
             wW2E = theano.shared(value=initial_wW2E, name='wW2E', borrow=True)
 
-        if not wE2H: # embed_to_hid_weights as a matrix of size numhid1*numwords X numhid2
+        if not wE2H: # embed_to_hid_weights as a matrix of size n_embed*numwords X n_hidden
             # Initialized with uniform sample
             # converted using asarray to dtype
             # theano.config.floatX so that the code is runable on GPU
@@ -119,7 +118,7 @@ class NextWord(object):
             )
             wE2H = theano.shared(value=initial_wE2H, name='wE2H', borrow=True)
             
-        if not bH: # hid_bias: Bias of the hidden layer as a matrix of size numhid2 X 1.
+        if not bH: # hid_bias: Bias of the hidden layer as a matrix of size n_hidden X 1.
             bH = theano.shared(
                 value=numpy.zeros(
                     n_hidden,
@@ -164,13 +163,13 @@ class NextWord(object):
         # if no input is given, generate a variable representing the input
         if input is None:
             # we use a matrix because we expect a minibatch of several examples
-            self.x = T.dmatrix(name='input')
+            self.x = T.dmatrix(name='input') # WARNING : should be Int ?
         else:
             self.x = input
             
         if output is None:
             # we use a vector because we expect a minibatch of several examples
-            self.y = T.dvector(name='output')
+            self.y = T.dvector(name='output') # WARNING : should be Int ? should be Matrix ?
         else:
             self.y = output
 
@@ -187,49 +186,39 @@ class NextWord(object):
         #W = words # dim = (batchsize, nbwords)
         
         return self.wW2E[words,:].reshape((-1,self.numwords*self.n_embed))
-
-        AA = T.matrix()
-        WW = T.imatrix()
-        #CC = AA[WW,:].reshape((batchsize,nbwords*self.n_embed))
-        CC = AA[WW,:].reshape((-1,self.numwords*self.n_embed))
-        print('a')
-        print(type(AA))
-        print(type(self.wW2E))
-        print(type(WW))
-        print(type(words))
-        f = theano.function([AA, WW], CC, allow_input_downcast=True)
-        print('b')
-        return f(A.astype(theano.config.floatX), words)
     
     def get_hidden_values(self, embed):
         """ Computes the values of the hidden layer """
-        print('H')
         return T.nnet.sigmoid(T.dot(embed, self.wE2H) + self.bH)
 
     def get_output(self, hidden):
         """ Computes the reconstructed input given the values of the hidden layer """
-        print('O')
         return T.nnet.softmax(T.dot(hidden, self.wH2O) + self.bO)
+    
+    def get_cross_entropy(self, output):
+        # needs to turn the target (Y) into a one-hot vectors
+        Y = self.EYE[self.y,:].reshape((-1,self.vocab_size))
+        # note : we sum over the size of a datapoint; if we are using
+        #        minibatches, CE will be a vector, with one entry per
+        #        example in minibatch
+        #CE = - T.sum(self.y * T.log(output) + (1 - self.y) * T.log(1 - output), axis=1)
+        CE = - T.sum(Y * T.log(output), axis=1)
+        # note : CE is now a vector, where each element is the
+        #        cross-entropy cost of the reconstruction of the
+        #        corresponding example of the minibatch. We need to
+        #        compute the average of all these to get the cost of
+        #        the minibatch
+        return CE
 
     def get_cost_updates(self, learning_rate):
         """ This function computes the cost and the updates for one trainng step of the model """
         embed = self.get_embed_values(self.x)
         hidden = self.get_hidden_values(embed)
         output = self.get_output(hidden)
-        # note : we sum over the size of a datapoint; if we are using
-        #        minibatches, L will be a vector, with one entry per
-        #        example in minibatch
-        #L = - T.sum(self.y * T.log(output) + (1 - self.y) * T.log(1 - output), axis=1)
-        L = - T.sum(output) - T.sum(self.y)
-        # note : L is now a vector, where each element is the
-        #        cross-entropy cost of the reconstruction of the
-        #        corresponding example of the minibatch. We need to
-        #        compute the average of all these to get the cost of
-        #        the minibatch
-        #cost = T.mean(L)
-        cost = L
-        print(cost)
-
+        CE = self.get_cross_entropy(output)
+        
+        cost = T.mean(CE)
+        
         # compute the gradients of the cost with respect to its parameters
         gparams = T.grad(cost, self.params)
         # generate the list of updates
@@ -242,56 +231,34 @@ class NextWord(object):
 
 
 # Temporary snippet to check dimension consistency
-# Reshape demo based on :
-# http://stackoverflow.com/questions/33947726/indexing-tensor-with-index-matrix-in-theano
+def test_snippet_1():
+    # Reshape demo based on :
+    # http://stackoverflow.com/questions/33947726/indexing-tensor-with-index-matrix-in-theano
 
-from random import randint
+    from random import randint
 
-nbwords = 3
-vocab = 30
-embed = 5
-batchsize = 10
+    nbwords = 3
+    vocab = 30
+    embed = 5
+    batchsize = 10
 
-A = numpy.array([[int(str(i+1)+'000'+str(j+1)) for j in range(embed)] for i in range(vocab)]).reshape(vocab, embed)
-B = numpy.array([randint(0,vocab-1) for i in range(nbwords*batchsize)]).reshape(batchsize, nbwords)
+    A = numpy.array([[int(str(i+1)+'000'+str(j+1)) for j in range(embed)] for i in range(vocab)]).reshape(vocab, embed)
+    B = numpy.array([randint(0,vocab-1) for i in range(nbwords*batchsize)]).reshape(batchsize, nbwords)
 
-AA = T.matrix()
-BB = T.imatrix()
+    AA = T.matrix()
+    BB = T.imatrix()
 
-#CC = AA[T.arange(AA.shape[0]).reshape((-1, 1)), T.arange(AA.shape[1]), BB]
-#CC = AA[BB,:]
-#CC = AA[BB,:].reshape((batchsize,nbwords*embed))
-CC = AA[BB,:].reshape((-1,nbwords*embed))
+    #CC = AA[T.arange(AA.shape[0]).reshape((-1, 1)), T.arange(AA.shape[1]), BB]
+    #CC = AA[BB,:]
+    #CC = AA[BB,:].reshape((batchsize,nbwords*embed))
+    CC = AA[BB,:].reshape((-1,nbwords*embed))
 
-f = theano.function([AA, BB], CC, allow_input_downcast=True)
+    f = theano.function([AA, BB], CC, allow_input_downcast=True)
 
-D = f(A.astype(theano.config.floatX), B)
+    D = f(A.astype(theano.config.floatX), B)
 
-print(D.shape)
-print(D[0])
-
-
-# Temporary snippet to check the class is correctly defined
-x = T.imatrix('x')
-y = T.imatrix('y')
-
-rng = numpy.random.RandomState(123)
-theano_rng = RandomStreams(rng.randint(2 ** 30))
-
-nw = NextWord(
-        numpy_rng = rng,
-        theano_rng = theano_rng,
-        input = x,
-        output = y,
-        n_embed = 50,
-        n_hidden = 100,
-        wW2E = None,
-        wE2H = None,
-        wH2O = None,
-        bH = None,
-        bO = None
-    )
-
+    print(D.shape)
+    print(D[0])
 
 
 def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
@@ -312,8 +279,7 @@ def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
     #train_set_x, train_set_y = datasets[0]
     [train_input, train_target, valid_input, valid_target, test_input, test_target, vocab] = load_data(batch_size)
 
-    """ Function that loads the dataset into shared variables
-
+    """ Loads the dataset into shared variables :
         The reason we store our dataset in shared variables is to allow
         Theano to copy it into the GPU memory (when code is run on GPU).
         Since copying data into the GPU is slow, copying a minibatch everytime
@@ -336,11 +302,10 @@ def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
     
     # compute number of minibatches for training, validation and testing
     #n_train_batches = train_set_x.get_value(borrow=True).shape[0] // batch_size
-    n_train_batches = min(500, train_input.shape[-1]) # 5 to test
+    n_train_batches = min(5000, train_input.shape[-1]) # 5 to test
 
-    # start-snippet-2
     # allocate symbolic variables for the data
-    index = T.lscalar()    # index to a [mini]batch
+    index = T.lscalar() # index to a [mini]batch, type=INT
     x = T.imatrix('x')
     y = T.imatrix('y')
 
@@ -355,9 +320,9 @@ def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
         n_embed = 50,
         n_hidden = 200
     )
-    print(nw)
+    #print(nw)
     cost, updates = nw.get_cost_updates(learning_rate=learning_rate)
-    print(cost, updates)
+    #print(cost, updates)
     train_nw = theano.function(
         [index],
         cost,
@@ -369,7 +334,7 @@ def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
             y: train_set_y[:,:,index]
         }
     )
-    print(train_nw)
+    #print(train_nw)
     start_time = timeit.default_timer()
 
     ############
@@ -378,7 +343,7 @@ def test_NextWord(learning_rate=0.1, training_epochs=5, batch_size=100):
 
     # go through training epochs
     for epoch in range(training_epochs):
-        # go through trainng set
+        # go through training set
         c = []
         for batch_index in range(n_train_batches):
             #print(batch_index)
