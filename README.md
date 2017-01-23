@@ -3,7 +3,7 @@
 This repo is implementing Word representation as feature vectors in :
 
 * Python with numpy - DONE
-* Python with Theano - in progress
+* Python with Theano - DONE (but need some clean-up)
 * Python with TensorFlow - DONE (but need some clean-up)
 * Python with PyTorch - to do
 
