@@ -5,8 +5,8 @@ This repo is implementing Word representation as feature vectors in :
 * Python with numpy - DONE
 * Python with Theano - DONE (but need some clean-up)
 * Python with TensorFlow - DONE (but need some clean-up)
-* Python with Keras - to do
-* Python with PyTorch - to do
+* Python with Keras - DONE
+* Python with PyTorch - started
 
 
 The model is based on a neural network that is trained on predicting the last word in a 4-gram.
